@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════
+#  FinTrack — .gitignore
+#  Place this file in the ROOT of your repository.
+#  THIS FILE PROTECTS YOUR SECRETS — do not remove the .env lines.
+# ═══════════════════════════════════════════════════════════════
+
+# ── Environment variable files (NEVER commit these) ───────────────
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Node / React ───────────────────────────────────────────────────
+node_modules/
+dist/
+.cache/
+*.local
+.vite/
+
+# ── IDE / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
