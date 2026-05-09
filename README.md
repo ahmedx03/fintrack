@@ -26,18 +26,6 @@
 
 ---
 
-## Screenshots
-
-| Dashboard | Transactions | Add Transaction |
-|---|---|---|
-| ![Dashboard](https://via.placeholder.com/380x220/1e3a8a/ffffff?text=Dashboard) | ![Transactions](https://via.placeholder.com/380x220/1e3a8a/ffffff?text=Transactions) | ![Add Transaction](https://via.placeholder.com/380x220/1e3a8a/ffffff?text=Add+Transaction) |
-
-| Login | Categories |  |
-|---|---|---|
-| ![Login](https://via.placeholder.com/380x220/0d1b2e/ffffff?text=Login) | ![Categories](https://via.placeholder.com/380x220/1e3a8a/ffffff?text=Categories) | |
-
----
-
 ## Features
 
 ### Core
@@ -46,11 +34,25 @@
 - **Transaction tracking** — add, edit, delete income and expense records
 - **Category management** — create and organise custom income/expense categories
 - **Filtering** — filter transactions by type, category, and date range
+- **Cursor-based pagination** — stable, tamper-proof pagination for large transaction sets
+- **CSV export** — download filtered transaction history as a CSV file
+- **Account settings** — update email and change password from within the app
+
+### Budget Tracking
+- Set monthly spending limits per expense category
+- Live progress bars showing spent vs. limit (colour-coded green / amber / red)
+- Over-budget detection with remaining amount display
+
+### Recurring Transactions
+- Schedule repeating income or expense entries (weekly or monthly)
+- Pause and resume schedules without deleting them
+- Lazy processing — due schedules are automatically fired when the user opens their transactions, no cron job required
 
 ### Analytics Dashboard
 - **Balance summary** — net balance, total income, and total expenses at a glance
 - **Spending by category** — interactive donut chart (Recharts)
 - **Balance over time** — monthly line chart showing income, expenses, and net balance
+- **Budget status** — current month spent, remaining, and percentage used per budget
 - **Recent transactions** — live feed of the last 8 transactions
 
 ### Security
@@ -111,16 +113,20 @@ Browser (Vercel)
 Render (Gunicorn)
     │
     │  Django + DRF
-    │  ├─ /api/auth/        → JWT login, register, logout, refresh, me
-    │  ├─ /api/transactions/ → CRUD (user-scoped)
-    │  ├─ /api/categories/  → CRUD (user-scoped)
-    │  └─ /api/analytics/   → summary, by-category, over-time
+    │  ├─ /api/auth/         → register, login, logout, refresh, me (GET/PATCH)
+    │  ├─ /api/transactions/ → CRUD, cursor pagination, CSV export
+    │  ├─ /api/categories/   → CRUD
+    │  ├─ /api/budgets/      → CRUD (one per category)
+    │  ├─ /api/recurring/    → CRUD, pause/resume
+    │  └─ /api/analytics/    → summary, by-category, over-time, budget-status
     │
     ▼
 Neon PostgreSQL
     ├─ users_user
     ├─ transactions_category
     ├─ transactions_transaction
+    ├─ transactions_budget
+    ├─ transactions_recurringtransaction
     └─ token_blacklist_*
 ```
 
@@ -129,6 +135,11 @@ Neon PostgreSQL
 2. Axios attaches `Authorization: Bearer <access>` to every request
 3. On 401, axios automatically calls `/auth/refresh/` and retries the original request
 4. On logout, the refresh token is POSTed to `/auth/logout/` and blacklisted in the database
+
+**Recurring transaction flow:**
+1. User creates a schedule with an interval and first occurrence date
+2. On every `GET /api/transactions/` call, due schedules are lazily fired — real transactions are created and the next occurrence date advances
+3. No cron job or external scheduler required
 
 ---
 
@@ -161,7 +172,6 @@ copy .env.example .env
 # Edit .env with your values (see Environment Variables section below)
 
 # 5. Run migrations
-python manage.py makemigrations
 python manage.py migrate
 
 # 6. Start the development server
@@ -196,8 +206,8 @@ npm run dev
 
 | Variable | Description | Example |
 |---|---|---|
-| `SECRET_KEY` | Django secret key — generate at [djecrety.ir](https://djecrety.ir) | `django-insecure-...` |
-| `DEBUG` | Enable debug mode (`True` in dev, `False` in prod) | `True` |
+| `SECRET_KEY` | Django secret key | `django-insecure-...` |
+| `DEBUG` | Enable debug mode | `True` in dev, `False` in prod |
 | `ALLOWED_HOSTS` | Comma-separated allowed hostnames | `localhost,127.0.0.1` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host/db` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated allowed frontend origins | `http://localhost:5173` |
@@ -208,42 +218,75 @@ npm run dev
 
 | Variable | Description | Example |
 |---|---|---|
-| `VITE_API_URL` | Backend API base URL (empty = use Vite proxy in dev) | `https://fintrack-api.onrender.com` |
+| `VITE_API_URL` | Backend API base URL (empty = use Vite proxy in dev) | `https://fintrack-l6gz.onrender.com` |
 
 ---
 
 ## API Reference
 
+All endpoints except auth require an `Authorization: Bearer <access_token>` header.
+
 ### Auth
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/register/` | None | Register a new user |
-| `POST` | `/api/auth/login/` | None | Obtain access + refresh tokens |
-| `POST` | `/api/auth/refresh/` | None | Rotate refresh token |
-| `POST` | `/api/auth/logout/` | Bearer | Blacklist refresh token |
-| `GET` | `/api/auth/me/` | Bearer | Get current user info |
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/auth/register/` | Register a new user |
+| `POST` | `/api/auth/login/` | Obtain access + refresh tokens |
+| `POST` | `/api/auth/refresh/` | Rotate refresh token |
+| `POST` | `/api/auth/logout/` | Blacklist refresh token |
+| `GET` | `/api/auth/me/` | Get current user profile |
+| `PATCH` | `/api/auth/me/` | Update email or change password |
 
 ### Transactions
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/transactions/` | Bearer | List transactions (supports `?type`, `?category`, `?from`, `?to`) |
-| `POST` | `/api/transactions/` | Bearer | Create a transaction |
-| `PUT` | `/api/transactions/:id/` | Bearer | Update a transaction |
-| `DELETE` | `/api/transactions/:id/` | Bearer | Delete a transaction |
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/transactions/` | List transactions — cursor paginated. Filters: `type`, `category`, `from`, `to` |
+| `POST` | `/api/transactions/` | Create a transaction |
+| `GET` | `/api/transactions/:id/` | Retrieve a single transaction |
+| `PATCH` | `/api/transactions/:id/` | Update a transaction |
+| `DELETE` | `/api/transactions/:id/` | Delete a transaction |
+| `GET` | `/api/transactions/export/` | Download transactions as CSV (accepts same filters as list) |
 
 ### Categories
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/categories/` | Bearer | List categories |
-| `POST` | `/api/categories/` | Bearer | Create a category |
-| `DELETE` | `/api/categories/:id/` | Bearer | Delete a category |
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/categories/` | List categories |
+| `POST` | `/api/categories/` | Create a category |
+| `DELETE` | `/api/categories/:id/` | Delete a category |
+
+### Budgets
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/budgets/` | List budgets |
+| `POST` | `/api/budgets/` | Create a budget (one per category) |
+| `PATCH` | `/api/budgets/:id/` | Update monthly limit |
+| `DELETE` | `/api/budgets/:id/` | Delete a budget |
+
+### Recurring Transactions
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/recurring/` | List recurring schedules |
+| `POST` | `/api/recurring/` | Create a schedule |
+| `PATCH` | `/api/recurring/:id/` | Update a schedule (e.g. pause with `is_active: false`) |
+| `DELETE` | `/api/recurring/:id/` | Delete a schedule |
 
 ### Analytics
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/analytics/summary/` | Bearer | Income, expenses, balance totals |
-| `GET` | `/api/analytics/by-category/` | Bearer | Spending grouped by category |
-| `GET` | `/api/analytics/over-time/` | Bearer | Monthly income/expense/balance trend |
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/analytics/summary/` | Income, expenses, balance totals. Filters: `from`, `to` |
+| `GET` | `/api/analytics/by-category/` | Spending grouped by category. Filters: `type`, `from`, `to` |
+| `GET` | `/api/analytics/over-time/` | Monthly income/expense/balance trend. Filters: `period`, `from`, `to` |
+| `GET` | `/api/analytics/budget-status/` | Current month spent, remaining, and % used per budget |
+
+---
+
+## Testing
+
+```bash
+cd fintrack_backend
+python -m pytest
+```
+
+107 tests across users, transactions, analytics, budgets, and recurring transactions. Uses `--reuse-db` to avoid recreating the Neon test database on every run.
 
 ---
 
@@ -272,55 +315,74 @@ npm run dev
 fintrack/
 ├── fintrack_backend/
 │   ├── config/
-│   │   ├── settings.py       # Environment-based configuration
+│   │   ├── settings.py           # Environment-based configuration
 │   │   ├── urls.py
 │   │   ├── wsgi.py
-│   │   └── exceptions.py     # Custom DRF exception handler
+│   │   └── exceptions.py         # Custom DRF exception handler
 │   ├── users/
-│   │   ├── models.py         # Custom User model
-│   │   ├── serializers.py    # Register + User serializers
-│   │   ├── views.py          # Register, Me, Logout views
+│   │   ├── models.py             # Custom User model
+│   │   ├── serializers.py        # Register, User, UpdateMe serializers
+│   │   ├── views.py              # Register, Me (GET/PATCH), Logout views
 │   │   ├── urls.py
-│   │   └── throttles.py      # Login + Register rate limiters
+│   │   └── throttles.py          # Login + Register rate limiters
 │   ├── transactions/
-│   │   ├── models.py         # Category + Transaction models
-│   │   ├── serializers.py    # With category ownership validation
-│   │   ├── views.py          # CRUD views (user-scoped)
-│   │   └── utils.py          # Safe date param parsing
+│   │   ├── models.py             # Category, Transaction, Budget, RecurringTransaction
+│   │   ├── serializers.py        # With ownership + duplicate-budget validation
+│   │   ├── views.py              # CRUD views + lazy recurring processing
+│   │   ├── urls.py
+│   │   ├── utils.py              # parse_date_param, process_recurring_for_user
+│   │   └── management/
+│   │       └── commands/
+│   │           └── process_recurring.py  # Manual backfill command
 │   ├── analytics/
-│   │   └── views.py          # Summary, by-category, over-time
+│   │   ├── views.py              # Summary, by-category, over-time, budget-status
+│   │   └── urls.py
+│   ├── pytest.ini
 │   ├── requirements.txt
 │   ├── .env.example
+│   ├── Procfile
 │   └── render.yaml
 │
 └── fintrack_frontend/
     ├── src/
-    │   ├── api/              # Axios instance + JWT interceptors
-    │   ├── components/       # Navbar, charts, summary cards
-    │   ├── context/          # AuthContext (login/logout/register)
-    │   ├── hooks/            # useTransactions, useSummary
-    │   ├── pages/            # Dashboard, Transactions, Categories, Auth
-    │   └── utils/            # Currency + date formatters
-    ├── public/
-    │   └── favicon.svg
-    ├── index.html
-    └── tailwind.config.js
+    │   ├── api/
+    │   │   ├── axios.js           # Axios instance + JWT interceptors
+    │   │   └── index.js           # All API call definitions
+    │   ├── context/
+    │   │   └── AuthContext.jsx    # Login, logout, register state
+    │   ├── components/
+    │   │   ├── Navbar.jsx
+    │   │   ├── BalanceSummaryCards.jsx
+    │   │   ├── SpendingPieChart.jsx
+    │   │   └── BalanceLineChart.jsx
+    │   ├── hooks/
+    │   │   ├── useTransactions.js # Cursor pagination + loadMore
+    │   │   └── useSummary.js
+    │   ├── pages/
+    │   │   ├── Dashboard.jsx
+    │   │   ├── Transactions.jsx   # Filters, CSV export, load more
+    │   │   ├── AddTransaction.jsx # Create + edit
+    │   │   ├── Categories.jsx
+    │   │   ├── Budgets.jsx        # Progress bars, CRUD
+    │   │   ├── Recurring.jsx      # Schedules, pause/resume
+    │   │   ├── Settings.jsx       # Email + password change
+    │   │   ├── Login.jsx
+    │   │   └── Register.jsx
+    │   └── utils/
+    │       └── format.js          # formatCurrency, formatDate
+    ├── vercel.json
+    └── vite.config.js
 ```
 
 ---
 
 ## Future Improvements
 
-- [ ] **Budget tracking** — set monthly limits per category with progress indicators
-- [ ] **Recurring transactions** — auto-log repeating income/expenses
-- [ ] **CSV export** — download transaction history
-- [ ] **Pagination** — cursor-based pagination for large transaction sets
-- [ ] **Account settings** — change password and email
 - [ ] **httpOnly cookie auth** — migrate from localStorage to server-set httpOnly cookies to eliminate XSS token theft risk
-- [x] **Test suite** — 70 pytest tests covering auth, IDOR, CRUD, filters, and analytics
-- [x] **CI/CD** — GitHub Actions runs the full suite on every push; auto-deploys to Render on green main
 - [ ] **Error monitoring** — Sentry integration for production error tracking
 - [ ] **Custom domain** — branded URL
+- [ ] **Dark mode** — system-preference-aware theme toggle
+- [ ] **Budget alerts** — email notification when a budget hits 80% or 100%
 
 ---
 
