@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
-from .serializers import RegisterSerializer, UserSerializer
+from .serializers import RegisterSerializer, UserSerializer, UpdateProfileSerializer
 from .models import User
 from .throttles import LoginRateThrottle, RegisterRateThrottle
 
@@ -19,9 +19,18 @@ class RegisterView(generics.CreateAPIView):
     throttle_classes = (RegisterRateThrottle,)
 
 
-class MeView(generics.RetrieveAPIView):
-    serializer_class = UserSerializer
+class MeView(generics.RetrieveUpdateAPIView):
+    """
+    GET  /api/auth/me/   — return current user's profile
+    PATCH /api/auth/me/  — update email and/or password
+    """
     permission_classes = (permissions.IsAuthenticated,)
+    http_method_names  = ['get', 'patch']
+
+    def get_serializer_class(self):
+        if self.request.method == 'PATCH':
+            return UpdateProfileSerializer
+        return UserSerializer
 
     def get_object(self):
         return self.request.user

@@ -1,9 +1,11 @@
+import datetime
+from django.db.models import Sum, Q
+from django.db.models.functions import TruncDay, TruncMonth
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
-from django.db.models import Sum, Q
-from django.db.models.functions import TruncDay, TruncMonth
-from transactions.models import Transaction
+
+from transactions.models import Transaction, Budget
 from transactions.utils import parse_date_param
 
 
@@ -11,7 +13,6 @@ class SummaryView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request):
-        # IDOR: user-scoped query
         qs = Transaction.objects.filter(user=request.user)
 
         from_date = parse_date_param(request.query_params.get('from'))
@@ -27,7 +28,11 @@ class SummaryView(APIView):
         )
         income   = totals['total_income']   or 0
         expenses = totals['total_expenses'] or 0
-        return Response({'total_income': income, 'total_expenses': expenses, 'balance': income - expenses})
+        return Response({
+            'total_income':   income,
+            'total_expenses': expenses,
+            'balance':        income - expenses,
+        })
 
 
 class ByCategoryView(APIView):
@@ -89,4 +94,63 @@ class OverTimeView(APIView):
             }
             for row in rows
         ]
+        return Response(data)
+
+
+class BudgetStatusView(APIView):
+    """
+    GET /api/analytics/budget-status/
+
+    Returns each of the user's budgets alongside how much has been spent
+    in the current calendar month, giving the frontend everything it needs
+    to render a progress bar.
+
+    Response shape (per budget):
+    {
+        "category":      "Food",
+        "monthly_limit": "500.00",
+        "spent":         "320.00",
+        "remaining":     "180.00",
+        "percent_used":  64.0
+    }
+    """
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        today           = datetime.date.today()
+        first_of_month  = today.replace(day=1)
+
+        budgets = (
+            Budget.objects
+            .filter(user=request.user)
+            .select_related('category')
+        )
+
+        data = []
+        for budget in budgets:
+            spent = (
+                Transaction.objects
+                .filter(
+                    user=request.user,
+                    category=budget.category,
+                    type='expense',
+                    date__gte=first_of_month,
+                    date__lte=today,
+                )
+                .aggregate(total=Sum('amount'))['total']
+            ) or 0
+
+            limit        = budget.monthly_limit
+            remaining    = limit - spent
+            percent_used = (
+                round(float(spent) / float(limit) * 100, 1) if limit > 0 else 0
+            )
+            data.append({
+                'category':      budget.category.name,
+                'monthly_limit': limit,
+                'spent':         spent,
+                'remaining':     remaining,
+                'percent_used':  percent_used,
+            })
+
         return Response(data)
