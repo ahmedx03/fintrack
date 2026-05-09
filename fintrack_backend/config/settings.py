@@ -93,7 +93,26 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# STATICFILES_STORAGE is deprecated in Django 5.0 (removed in 5.1) — use STORAGES.
+# During testing we skip the CompressedManifest backend (which requires collectstatic
+# to have been run) and fall back to the plain WhiteNoise backend so tests don't warn
+# about a missing staticfiles/ directory.
+import sys as _sys
+_testing = 'pytest' in _sys.modules
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": (
+            "whitenoise.storage.CompressedStaticFilesStorage"
+            if _testing
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        ),
+    },
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

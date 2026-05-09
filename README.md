@@ -1,5 +1,7 @@
 # FinTrack
 
+![Tests](https://github.com/ahmedx03/fintrack/actions/workflows/test.yml/badge.svg)
+
 > A full-stack personal finance tracker — built for clarity, secured for production.
 
 ![Django](https://img.shields.io/badge/Django-5.0-092E20?style=flat&logo=django&logoColor=white)
@@ -143,7 +145,7 @@ Neon PostgreSQL
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR_USERNAME/fintrack.git
+git clone https://github.com/ahmedx03/fintrack.git
 cd fintrack/fintrack_backend
 
 # 2. Create and activate a virtual environment
@@ -315,8 +317,8 @@ fintrack/
 - [ ] **Pagination** — cursor-based pagination for large transaction sets
 - [ ] **Account settings** — change password and email
 - [ ] **httpOnly cookie auth** — migrate from localStorage to server-set httpOnly cookies to eliminate XSS token theft risk
-- [ ] **Test suite** — unit tests for auth, IDOR, and serializer validation
-- [ ] **CI/CD** — GitHub Actions to run tests on every push
+- [x] **Test suite** — 70 pytest tests covering auth, IDOR, CRUD, filters, and analytics
+- [x] **CI/CD** — GitHub Actions runs the full suite on every push; auto-deploys to Render on green main
 - [ ] **Error monitoring** — Sentry integration for production error tracking
 - [ ] **Custom domain** — branded URL
 
