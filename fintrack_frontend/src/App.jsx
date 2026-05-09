@@ -5,6 +5,9 @@ import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
 import AddTransaction from './pages/AddTransaction'
 import Categories from './pages/Categories'
+import Budgets from './pages/Budgets'
+import Recurring from './pages/Recurring'
+import Settings from './pages/Settings'
 import PrivateRoute from './components/PrivateRoute'
 import Navbar from './components/Navbar'
 
@@ -25,6 +28,9 @@ export default function App() {
                   <Route path="transactions" element={<Transactions />} />
                   <Route path="add"          element={<AddTransaction />} />
                   <Route path="categories"   element={<Categories />} />
+                  <Route path="budgets"      element={<Budgets />} />
+                  <Route path="recurring"    element={<Recurring />} />
+                  <Route path="settings"     element={<Settings />} />
                   <Route index               element={<Navigate to="dashboard" replace />} />
                 </Routes>
               </main>

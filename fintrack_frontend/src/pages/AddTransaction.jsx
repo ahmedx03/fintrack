@@ -20,10 +20,9 @@ export default function AddTransaction() {
   useEffect(() => {
     if (!editId) return
     setLoadingTx(true)
-    transactionsAPI.list()
+    transactionsAPI.retrieve(editId)
       .then(({ data }) => {
-        const tx = data.find((t) => String(t.id) === String(editId))
-        if (tx) setForm({ type: tx.type, amount: tx.amount, category: tx.category ?? '', date: tx.date, note: tx.note ?? '' })
+        setForm({ type: data.type, amount: data.amount, category: data.category ?? '', date: data.date, note: data.note ?? '' })
       })
       .catch(() => {})
       .finally(() => setLoadingTx(false))

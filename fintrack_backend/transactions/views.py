@@ -9,7 +9,7 @@ from .serializers import (
     CategorySerializer, TransactionSerializer,
     BudgetSerializer, RecurringTransactionSerializer,
 )
-from .utils import parse_date_param
+from .utils import parse_date_param, process_recurring_for_user
 
 
 # ── Cursor pagination for transactions ───────────────────────────────────────────
@@ -69,6 +69,13 @@ class TransactionListCreateView(generics.ListCreateAPIView):
     serializer_class   = TransactionSerializer
     permission_classes = (permissions.IsAuthenticated,)
     pagination_class   = TransactionCursorPagination
+
+    def list(self, request, *args, **kwargs):
+        # Lazily fire any due recurring transactions before returning results.
+        # This replaces the need for a cron job — schedules are processed the
+        # first time the user opens their transactions on or after the due date.
+        process_recurring_for_user(request.user)
+        return super().list(request, *args, **kwargs)
 
     def get_queryset(self):
         qs = Transaction.objects.filter(user=self.request.user)

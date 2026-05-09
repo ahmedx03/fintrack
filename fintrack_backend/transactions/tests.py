@@ -386,3 +386,60 @@ class TestRecurringCRUD:
 
     def test_unauthenticated_rejected(self, api_client, db):
         assert api_client.get(RECURRING_URL).status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
+class TestLazyRecurringProcessing:
+    """
+    GET /api/transactions/ fires process_recurring_for_user before returning
+    results — so no cron job is needed.
+    """
+
+    def _make_due(self, user, category, interval="monthly", days_overdue=1):
+        due_date = datetime.date.today() - datetime.timedelta(days=days_overdue)
+        return RecurringTransaction.objects.create(
+            user=user, category=category, type="expense",
+            amount="75.00", note="auto", interval=interval,
+            next_occurrence=due_date, is_active=True,
+        )
+
+    def test_due_recurring_creates_transaction_on_list(self, auth_client_a, user_a, cat_a_expense):
+        self._make_due(user_a, cat_a_expense)
+        assert Transaction.objects.filter(user=user_a).count() == 0
+
+        res = auth_client_a.get(TRANSACTIONS_URL)
+
+        assert res.status_code == status.HTTP_200_OK
+        assert Transaction.objects.filter(user=user_a).count() == 1
+
+    def test_next_occurrence_advances_after_list(self, auth_client_a, user_a, cat_a_expense):
+        rt = self._make_due(user_a, cat_a_expense, interval="weekly")
+        original = rt.next_occurrence
+
+        auth_client_a.get(TRANSACTIONS_URL)
+
+        rt.refresh_from_db()
+        assert rt.next_occurrence == original + datetime.timedelta(weeks=1)
+
+    def test_paused_schedule_not_processed(self, auth_client_a, user_a, cat_a_expense):
+        rt = self._make_due(user_a, cat_a_expense)
+        rt.is_active = False
+        rt.save()
+
+        auth_client_a.get(TRANSACTIONS_URL)
+
+        assert Transaction.objects.filter(user=user_a).count() == 0
+
+    def test_future_schedule_not_processed(self, auth_client_a, user_a, cat_a_expense):
+        future = datetime.date.today() + datetime.timedelta(days=7)
+        RecurringTransaction.objects.create(
+            user=user_a, category=cat_a_expense, type="expense",
+            amount="50.00", interval="monthly", next_occurrence=future, is_active=True,
+        )
+        auth_client_a.get(TRANSACTIONS_URL)
+        assert Transaction.objects.filter(user=user_a).count() == 0
+
+    def test_only_own_schedules_processed(self, auth_client_a, user_b, cat_b_expense):
+        self._make_due(user_b, cat_b_expense)
+        auth_client_a.get(TRANSACTIONS_URL)
+        assert Transaction.objects.filter(user=user_b).count() == 0

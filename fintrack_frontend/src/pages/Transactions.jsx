@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTransactions, useCategories } from '../hooks/useTransactions'
+import { transactionsAPI } from '../api'
 import { formatCurrency, formatDate } from '../utils/format'
 
 function Filters({ filters, setFilters, categories }) {
@@ -77,8 +78,29 @@ function TransactionRow({ tx, onDelete, isEven }) {
 export default function Transactions() {
   const navigate = useNavigate()
   const [filters, setFilters] = useState({})
-  const { transactions, loading, error, remove } = useTransactions(filters)
+  const [exporting, setExporting] = useState(false)
+  const { transactions, loading, error, remove, loadMore, hasMore, loadingMore } = useTransactions(filters)
   const { categories } = useCategories()
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '' && v != null))
+      const { data } = await transactionsAPI.exportCSV(params)
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'text/csv' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'transactions.csv'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch {
+      // silently fail — user will notice nothing downloaded
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div>
@@ -86,10 +108,19 @@ export default function Transactions() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Transactions</h2>
           <p className="text-slate-500 mt-1">
-            {!loading && `${transactions.length} result${transactions.length !== 1 ? 's' : ''}`}
+            {!loading && `${transactions.length} result${transactions.length !== 1 ? 's' : ''}${hasMore ? '+' : ''}`}
           </p>
         </div>
-        <button onClick={() => navigate('/app/add')} className="btn-primary">+ Add Transaction</button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExport}
+            disabled={exporting || loading}
+            className="btn-secondary text-sm disabled:opacity-50"
+          >
+            {exporting ? 'Exporting…' : '↓ Export CSV'}
+          </button>
+          <button onClick={() => navigate('/app/add')} className="btn-primary">+ Add Transaction</button>
+        </div>
       </div>
       <Filters filters={filters} setFilters={setFilters} categories={categories} />
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">{error}</div>}
@@ -113,6 +144,17 @@ export default function Transactions() {
           </table>
         )}
       </div>
+      {hasMore && (
+        <div className="flex justify-center mt-5">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="btn-secondary px-8 disabled:opacity-50"
+          >
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
